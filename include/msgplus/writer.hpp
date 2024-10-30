@@ -10,9 +10,9 @@ namespace msgplus
 
 template<typename W>
 concept Writer = requires(W& w) {
-    {w.is_ok()} -> std::convertible_to<bool>;
-    w.write_byte(std::declval<std::byte>());
-    w.write_bytes(std::declval<const std::byte*>(), 8);
+    {w.is_ok()}                                          -> std::convertible_to<bool>;
+    {w.write_byte(std::declval<std::byte>())}            -> std::convertible_to<bool>;
+    {w.write_bytes(std::declval<const std::byte*>(), 8)} -> std::convertible_to<bool>;
 };
 
 class file_writer
@@ -25,13 +25,15 @@ class file_writer
 
     bool is_ok()  const noexcept {return file_.good();}
 
-    void write_byte(std::byte b)
+    bool write_byte(std::byte b)
     {
         file_.put(std::bit_cast<char>(b));
+        return !file_.fail();
     }
-    void write_bytes(const std::byte* ptr, const std::size_t len)
+    bool write_bytes(const std::byte* ptr, const std::size_t len)
     {
         if(ptr) {file_.write(reinterpret_cast<const char*>(ptr), len);}
+        return !file_.fail();
     }
 
   private:
