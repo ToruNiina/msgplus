@@ -1,10 +1,14 @@
 #ifndef MSGPLUS_ORDERED_MAP_HPP
 #define MSGPLUS_ORDERED_MAP_HPP
 
+#include "flat_map.hpp"
+
 #include <algorithm>
 #include <stdexcept>
 #include <utility>
 #include <vector>
+
+#include <cassert>
 
 namespace msgplus
 {
@@ -33,6 +37,10 @@ class ordered_map
     using size_type       = typename container_type::size_type;
     using difference_type = typename container_type::difference_type;
 
+    using key_index_map = flat_map<key_type, size_type, key_compare, typename
+        std::allocator_traits<allocator_type>::template rebind_alloc<std::pair<key_type, size_type>>
+          >;
+
   public:
 
     ordered_map() = default;
@@ -42,28 +50,22 @@ class ordered_map
     ordered_map& operator=(const ordered_map&) = default;
     ordered_map& operator=(ordered_map&&)      = default;
 
-    explicit ordered_map(const Allocator& alloc)
-        : container_(alloc)
-    {}
-
-    ordered_map(const ordered_map& other, const Allocator& alloc)
-        : container_(other.container_, alloc)
-    {}
-    ordered_map(ordered_map&& other, const Allocator& alloc)
-        : container_(std::move(other.container_), alloc)
-    {}
-
     template<typename InputIterator>
-    ordered_map(InputIterator first, InputIterator last, const Allocator& alloc = Allocator())
-        :  container_(first, last, alloc)
-    {}
+    ordered_map(InputIterator first, InputIterator last)
+        :  container_(first, last)
+    {
+        this->construct_index();
+    }
 
-    ordered_map(std::initializer_list<value_type> v, const Allocator& alloc = Allocator())
-        : container_(std::move(v), alloc)
-    {}
+    ordered_map(std::initializer_list<value_type> v)
+        : container_(std::move(v))
+    {
+        this->construct_index();
+    }
     ordered_map& operator=(std::initializer_list<value_type> v)
     {
         this->container_ = std::move(v);
+        this->construct_index();
         return *this;
     }
 
@@ -80,20 +82,13 @@ class ordered_map
 
     void clear() {container_.clear();}
 
-    void push_back(const value_type& v)
+    void push_back(value_type v)
     {
         if(this->contains(v.first))
         {
             throw std::out_of_range("ordered_map: value already exists");
         }
-        container_.push_back(v);
-    }
-    void push_back(value_type&& v)
-    {
-        if(this->contains(v.first))
-        {
-            throw std::out_of_range("ordered_map: value already exists");
-        }
+        this->key_index_[v.first] = this->container_.size();
         container_.push_back(std::move(v));
     }
     void emplace_back(key_type k, mapped_type v)
@@ -102,37 +97,44 @@ class ordered_map
         {
             throw std::out_of_range("ordered_map: value already exists");
         }
+        this->key_index_[k] = this->container_.size();
         container_.emplace_back(std::move(k), std::move(v));
     }
-    void pop_back()  {container_.pop_back();}
+    void pop_back()
+    {
+        if(this->empty()) {return;}
 
-    void insert(value_type kv)
+        this->key_index_.erase(container_.back().first);
+        container_.pop_back();
+    }
+
+    void insert(const_iterator pos, value_type kv)
     {
         if(this->contains(kv.first))
         {
             throw std::out_of_range("ordered_map: value already exists");
         }
-        container_.push_back(std::move(kv));
-    }
-    void emplace(key_type k, mapped_type v)
-    {
-        if(this->contains(k))
+
+        const auto index = std::distance(this->container_.cbegin(), pos);
+        for(auto iter=pos; iter != this->cend(); ++iter)
         {
-            throw std::out_of_range("ordered_map: value already exists");
+            assert(index <= this->key_index_.at(iter->first));
+            this->key_index_.at(iter->first) += 1;
         }
-        container_.emplace_back(std::move(k), std::move(v));
+        this->key_index_[kv.first] = index;
+
+        container_.insert(pos, std::move(kv));
+        return;
+    }
+    void emplace(const_iterator pos, key_type k, mapped_type v)
+    {
+        this->insert(pos, std::make_pair(std::move(k), std::move(v)));
+        return;
     }
 
     std::size_t count(const key_type& key) const
     {
-        if(this->find(key) != this->end())
-        {
-            return 1;
-        }
-        else
-        {
-            return 0;
-        }
+        return this->contains(key) ? 1 : 0;
     }
     bool contains(const key_type& key) const
     {
@@ -140,13 +142,31 @@ class ordered_map
     }
     iterator find(const key_type& key) noexcept
     {
-        return std::find_if(this->begin(), this->end(),
-            [&key, this](const value_type& v) {return v.first == key;});
+        const auto index = this->key_index_.find(key);
+        if(index == this->key_index_.end())
+        {
+            return this->end();
+        }
+        assert(index->second < this->size());
+
+        const auto found = std::next(this->begin(), index->second);
+        assert(found->first == key);
+
+        return found;
     }
     const_iterator find(const key_type& key) const noexcept
     {
-        return std::find_if(this->begin(), this->end(),
-            [&key, this](const value_type& v) {return v.first == key;});
+        const auto index = this->key_index_.find(key);
+        if(index == this->key_index_.end())
+        {
+            return this->end();
+        }
+        assert(index->second < this->size());
+
+        const auto found = std::next(this->begin(), index->second);
+        assert(found->first == key);
+
+        return found;
     }
 
     mapped_type&       at(const key_type& k)
@@ -176,7 +196,10 @@ class ordered_map
             this->container_.emplace_back(k, mapped_type{});
             return this->container_.back().second;
         }
-        return iter->second;
+        else
+        {
+            return iter->second;
+        }
     }
 
     mapped_type const& operator[](const key_type& k) const
@@ -186,7 +209,10 @@ class ordered_map
         {
             throw std::out_of_range("ordered_map: no such element");
         }
-        return iter->second;
+        else
+        {
+            return iter->second;
+        }
     }
 
     void swap(ordered_map& other)
@@ -203,6 +229,18 @@ class ordered_map
 
   private:
 
+    void construct_index()
+    {
+        this->key_index_.clear();
+        for(size_type i=0; i<this->container_.size(); ++i)
+        {
+            this->key_index_[this->container_[i].first] = i;
+        }
+    }
+
+  private:
+
+    key_index_map  key_index_;
     container_type container_;
 };
 
