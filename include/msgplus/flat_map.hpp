@@ -14,6 +14,7 @@ template<typename Key, typename Value, typename Cmp = std::less<Key>,
 class flat_map
 {
   public:
+
     using key_type    = Key;
     using mapped_type = Value;
     using value_type  = std::pair<key_type, mapped_type>;
@@ -95,30 +96,24 @@ class flat_map
         if(this->contains(k)) {return 1;} else {return 0;}
     }
 
-    reference operator[](key_type k)
+    mapped_type& operator[](key_type k)
     {
         const auto found = this->lower_bound(k);
-        if(found->first == k)
+        if(found < this->end() && found->first == k)
         {
             return found->second;
         }
         const auto idx = std::distance(this->container_.begin(), found);
-        this->container_.insert(found, std::make_pair(std::move(k), value_type{}));
+        this->container_.insert(found, std::make_pair(std::move(k), mapped_type{}));
 
         return this->container_.at(static_cast<size_type>(idx)).second;
     }
-    template<typename K>
-    std::enable_if_t<std::negation_v<std::is_same<std::remove_cvref_t<K>, key_type>>, reference>
-    operator[](K&& k)
-    {
-        return this->operator[](key_type(std::forward<K>(k)));
-    }
 
     template<typename K>
-    reference at(const K& k)
+    mapped_type& at(const K& k)
     {
         const auto found = this->lower_bound(k);
-        if(found->first == k)
+        if(found < this->end() && found->first == k)
         {
             return found->second;
         }
@@ -128,10 +123,10 @@ class flat_map
         }
     }
     template<typename K>
-    const_reference at(const K& k) const
+    mapped_type const& at(const K& k) const
     {
         const auto found = this->lower_bound(k);
-        if(found->first == k)
+        if(found < this->end() && found->first == k)
         {
             return found->second;
         }
@@ -145,7 +140,7 @@ class flat_map
     iterator find(const K& k)
     {
         const auto found = this->lower_bound(k);
-        if(found->first == k)
+        if(found < this->end() && found->first == k)
         {
             return found;
         }
@@ -158,7 +153,7 @@ class flat_map
     const_iterator find(const K& k) const
     {
         const auto found = this->lower_bound(k);
-        if(found->first == k)
+        if(found < this->end() && found->first == k)
         {
             return found;
         }
@@ -171,23 +166,27 @@ class flat_map
     template<typename K>
     iterator lower_bound(const K& k)
     {
-        return std::lower_bound(this->container_.begin(), this->container_.end(), k);
+        return std::lower_bound(this->begin(), this->end(), k,
+            [](const value_type& v, const key_type& k) {return v.first < k;});
     }
     template<typename K>
     const_iterator lower_bound(const K& k) const
     {
-        return std::lower_bound(this->container_.begin(), this->container_.end(), k);
+        return std::lower_bound(this->begin(), this->end(), k,
+            [](const value_type& v, const key_type& k) {return v.first < k;});
     }
 
     template<typename K>
     iterator upper_bound(const K& k)
     {
-        return std::upper_bound(this->container_.begin(), container_.end(), k);
+        return std::upper_bound(this->begin(), this->end(), k,
+            [](const value_type& v, const key_type& k) {return v.first < k;});
     }
     template<typename K>
     const_iterator upper_bound(const K& k) const
     {
-        return std::upper_bound(this->container_.begin(), container_.end(), k);
+        return std::upper_bound(this->begin(), this->end(), k,
+            [](const value_type& v, const key_type& k) {return v.first < k;});
     }
 
     template<typename ... Args>
@@ -199,7 +198,7 @@ class flat_map
     std::pair<iterator, bool> insert(value_type v)
     {
         const auto found = this->lower_bound(v.first);
-        if(found->first == v.first)
+        if(found < this->end() && found->first == v.first)
         {
             return std::make_pair(found, false);
         }
@@ -211,8 +210,21 @@ class flat_map
         }
     }
 
+    void erase(const_iterator i)
+    {
+        this->container_.erase(i);
+    }
+    void erase(key_type k)
+    {
+        const auto found = this->find(k);
+        if(found != this->end())
+        {
+            this->container_.erase(found);
+        }
+    }
+
     key_compare   key_comp()   const {return key_compare{};}
-    value_compare value_comp() const {return value_compare{};}
+    value_compare value_comp() const {return value_compare{this->key_comp()};}
 
     bool operator==(const flat_map& rhs) const noexcept {return this->container_ == rhs.container_;}
     bool operator!=(const flat_map& rhs) const noexcept {return this->container_ != rhs.container_;}
@@ -235,8 +247,8 @@ class flat_map
     container_type container_;
 };
 
-template<typename K, typename V, typename A>
-void swap(flat_map<K, V, A>& lhs, flat_map<K, V, A>& rhs)
+template<typename K, typename V, typename C, typename A>
+void swap(flat_map<K, V, C, A>& lhs, flat_map<K, V, C, A>& rhs)
 {
     lhs.swap(rhs);
     return ;
