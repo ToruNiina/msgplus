@@ -45,7 +45,9 @@ int main()
 
 ## Integration
 
-add `path/to/this/repo/include/` to your include path.
+Copy `single_include/msgplus.hpp` to your favorite location.
+
+Or add `path/to/this/repo/include/` to your include path.
 
 ## Licensing terms
 
